@@ -1,7 +1,8 @@
 <?php
 
-use App\Http\Controllers\ExcelController;
+
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\ExcelController;
 
 /*
 |--------------------------------------------------------------------------
@@ -19,5 +20,5 @@ Route::get('/', function () {
 });
 
 
-Route::post('upload/data',[ExcelController::class,'upload'])->name('upload.data');
-Route::post('cross/join',[ExcelController::class,'crossjoin'])->name('crossjoin.data');
+// Route::post('upload/data',[ExcelController::class,'upload'])->name('upload.data');
+// Route::post('cross/join',[ExcelController::class,'crossjoin'])->name('crossjoin.data');

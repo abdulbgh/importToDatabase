@@ -2,110 +2,105 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Customer;
+
+use App\Models\ExcelBuffer;
+use App\Imports\ExcelImport;
 use Illuminate\Http\Request;
-use App\Imports\HeaderImport;
-use App\Imports\CustomerImport;
-use Exception;
+use App\Services\ExcelService;
+use App\Http\Controllers\Controller;
+use App\Models\Customer;
 use Maatwebsite\Excel\Facades\Excel;
-use Illuminate\Support\Facades\Schema;
-use Illuminate\Support\Facades\Storage;
+
+
 
 class ExcelController extends Controller
 {
+    public function __construct(private readonly ExcelService $excelService)
+    {
+        
+    }
     public function upload(Request $request){
-        try{
-            $name = 'customer'; //filename
-            $file = $request->file('file');
-            $fileName = $this->getFileName($file,$name);
-            $file->storeAs('excel/customer/', $fileName);  //store file
-            $import = new HeaderImport();
-            $excelHeader = $this->getExcelColumnName($import,$file);
-            $model = new Customer();
-            $tableHeader = $this->getTableColumnName($model);
-            $matchedData = [];
-            foreach ($tableHeader as $column) {
-                if (in_array($column, $excelHeader)) {
-                    // Match found, add to matched data array
-                    $matchedData[] = $column; // Or you can assign the index of $column to retain Excel order
-                }
-            }
+            $data = [
+                'imported_by' =>  1,
+                'module_id' => 1,
+                'validation_status' => false,
+                'import_status' => false,
+                'document_id' => 1,
+                'row_no' => 0,
+                'message' => '',
+                'reupload' => false
 
-         
+            ];
+       
+            $filePath = $this->excelService->storeFile($request->file('file'),'customer','excel/customer/');
+            $data = $this->importData($filePath,$data);
             return response()->json([
                 'status' => true,
-                'excelHeader' =>$excelHeader,
-                'tableHeader' => $tableHeader,
-                'matchData' => $matchedData
-            ],200);
-        }catch(Exception $e) {
-            return response()->json([
-                'status' => false,
-                'excelHeader' => [],
-                'tableHeader' => [],
-                'message' => $e->getMessage()
+                'error_data' => $data['error_data'],
+                'success_data' => $data['success_data'],
             ]);
-        }
-        // return view('compare',compact('excelHeader','tableHeader'));
-       
     }
-    public function crossjoin(Request $request){
-    
-       try{
-        $columnMapping = $this->createColumnMapping($request);
-        $customerImport = new CustomerImport($columnMapping);
-        $filePath  =  'excel/customer/customer.xlsx';
-        $result =  $this->storeExcelDataToDatabase($customerImport,$filePath);
-        return  response()->json([
-            'status' => true,
-            'message' => $result
-        ]);
+ 
+    public function importData($filePath,$data){
+        try{
+            $customerImport = new ExcelImport($data);
+            $fullPath = storage_path('app/'.$filePath);
+            if (file_exists($fullPath)) {
+                $customerImport->import($fullPath);
+               
+                return [
+                    'error_data'  =>  $customerImport->getErrors(),
+                    'success_data' => $customerImport->getSuccessData(),
+                ];
+                return;
+            } else {
+                return  response()->json([
+                    'status' => false,
+                    'message' => 'File not found'
+                ],404);
+            } 
+        }
+        catch (\Exception $e) {
+            return  response()->json([
+                'status' => false,
+                'message' => $e->getMessage()
+            ],400);
+        } 
+            
+    }
+
+    public function insertData(){
+        $query  = ExcelBuffer::where('import_status',1);
+       $data =  $query->pluck('meta_data')->map(function ($item) {
+        return json_decode($item, true); // Decode each JSON string
+    })->toArray();
+
+       Customer::insert($data);
+       $query->delete();
+       return response()->json([
+        'data' => $data
+       ]);
+    }
+
+    public function reUpload(Request $request){
+            $data = [
+                'imported_by' =>  1,
+                'module_id' => 1,
+                'validation_status' => false,
+                'import_status' => false,
+                'document_id' => $request->document_id,
+                'row_no' => $request->row_id,
+                'message' => '',
+                'reupload' => true
+            ];
         
-       }catch(\Exception $e){
-        return  response()->json([
-            'status' => false,
-            'message' => $e->getMessage()
-        ],400);
-       }
-       
-    }
-
-    public function storeExcelDataToDatabase($customerImport,$filePath){
-       
-        $fullPath = storage_path('app/'.$filePath);
-        if (file_exists($fullPath)) {
-            Excel::import($customerImport, $fullPath);
-            return 'Successfully Excel Data store to Database';
-        } else {
-            abort(404, 'File not found');
-        }
-    }
-
-
-    public function createColumnMapping($request){
-        $excel = $request->excel;
-        $table = $request->table;
-        $columnMapping = array_combine($excel, $table);
-        return $columnMapping;
-    }
-
-    public function getFileName($file,$name) {
-        $fileName = $name.'.'. $file->getClientOriginalExtension();
-        $filename = trim($fileName);
-        return $filename ;
-    }
-    public function getExcelColumnName($import,$file){
-        Excel::import($import, $file);
-        $excelHeader = $import->getColumnNames();
-        return $excelHeader;
-    }
-    public function getTableColumnName($model) {
-       
-        $tableName = $model->getTable();
-        $tableHeader = Schema::getColumnListing($tableName);
-        if (!in_array('id', $tableHeader)) {
-            $tableHeader[] = 'id';
-        }
-        return $tableHeader;
+            $filePath = $this->excelService->storeFile($request->file('file'),'customer','excel/customer/');
+            $data = $this->importData($filePath,$data);
+          return $data;
+            return response()->json([
+                'status' => true,
+                'error_data' => $data['error_data'],
+                'success_data' => $data['success_data'],
+            ]);
     }
 }
